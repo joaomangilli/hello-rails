@@ -1,0 +1,6 @@
+# OS / editor
+.DS_Store
+*.swp
+
+# CDK synth output
+infra/cdk.out/
