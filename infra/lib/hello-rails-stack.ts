@@ -5,16 +5,24 @@ import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as ecs from 'aws-cdk-lib/aws-ecs';
 import * as ecsPatterns from 'aws-cdk-lib/aws-ecs-patterns';
 import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
+import { EnvConfig } from './environments';
+
+export interface HelloRailsStackProps extends cdk.StackProps {
+  /** The environment (QA/PROD) this stack provisions resources for. */
+  readonly envConfig: EnvConfig;
+}
 
 export class HelloRailsStack extends cdk.Stack {
-  constructor(scope: Construct, id: string, props?: cdk.StackProps) {
+  constructor(scope: Construct, id: string, props: HelloRailsStackProps) {
     super(scope, id, props);
 
-    // Networking. 1 NAT gateway keeps cost down while still letting the
-    // Fargate tasks in private subnets pull the image from ECR.
+    const { envConfig } = props;
+
+    // Networking. NAT gateways let the Fargate tasks in private subnets pull
+    // the image from ECR; QA runs a single one to save cost, PROD one per AZ.
     const vpc = new ec2.Vpc(this, 'Vpc', {
       maxAzs: 2,
-      natGateways: 1,
+      natGateways: envConfig.natGateways,
     });
 
     const cluster = new ecs.Cluster(this, 'Cluster', { vpc });
@@ -22,7 +30,7 @@ export class HelloRailsStack extends cdk.Stack {
     // Rails needs a SECRET_KEY_BASE in production. Generate a random one and
     // store it in Secrets Manager instead of committing it to the repo.
     const secretKeyBase = new secretsmanager.Secret(this, 'SecretKeyBase', {
-      description: 'Rails SECRET_KEY_BASE for the hello app',
+      description: `Rails SECRET_KEY_BASE for the hello app (${envConfig.name})`,
       generateSecretString: {
         passwordLength: 64,
         excludePunctuation: true,
@@ -33,9 +41,9 @@ export class HelloRailsStack extends cdk.Stack {
     // it on Fargate behind a public, HTTP-only Application Load Balancer.
     const service = new ecsPatterns.ApplicationLoadBalancedFargateService(this, 'Service', {
       cluster,
-      cpu: 256,
-      memoryLimitMiB: 512,
-      desiredCount: 1,
+      cpu: envConfig.cpu,
+      memoryLimitMiB: envConfig.memoryLimitMiB,
+      desiredCount: envConfig.desiredCount,
       publicLoadBalancer: true,
       // Roll back automatically and fail fast if new tasks don't become healthy.
       circuitBreaker: { rollback: true },
@@ -47,6 +55,7 @@ export class HelloRailsStack extends cdk.Stack {
         containerPort: 80, // Thruster listens on 80 in the Rails 8 production image
         environment: {
           RAILS_ENV: 'production',
+          DEPLOY_ENV: envConfig.name,
         },
         secrets: {
           SECRET_KEY_BASE: ecs.Secret.fromSecretsManager(secretKeyBase),
@@ -62,7 +71,7 @@ export class HelloRailsStack extends cdk.Stack {
 
     new cdk.CfnOutput(this, 'LoadBalancerUrl', {
       value: `http://${service.loadBalancer.loadBalancerDnsName}`,
-      description: 'Public URL of the hello endpoint',
+      description: `Public URL of the hello endpoint (${envConfig.name})`,
     });
   }
 }

@@ -1,23 +1,32 @@
 name: Deploy
 
+# Deploy is manual only: trigger it from the Actions tab (or `gh workflow run`),
+# choosing the branch to deploy from and the target environment.
 on:
-  push:
-    branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Target environment to deploy to
+        type: choice
+        required: true
+        options:
+          - QA
+          - PROD
 
 # Required for requesting the OIDC JWT used to assume the AWS deploy role.
 permissions:
   id-token: write
   contents: read
 
-# Avoid concurrent deploys stepping on each other.
+# Avoid concurrent deploys to the same environment stepping on each other.
 concurrency:
-  group: deploy-production
+  group: deploy-${{ inputs.environment }}
   cancel-in-progress: false
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    environment: production
+    environment: ${{ inputs.environment }}
     defaults:
       run:
         working-directory: infra
@@ -44,4 +53,6 @@ jobs:
       # Docker is preinstalled on ubuntu-latest runners and is needed because
       # the Rails image is built locally by ContainerImage.fromAsset during deploy.
       - name: Deploy CDK stack
-        run: npx cdk deploy --require-approval never
+        env:
+          DEPLOY_ENV: ${{ inputs.environment }}
+        run: npx cdk deploy --require-approval never -c env=${{ inputs.environment }}
