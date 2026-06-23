@@ -52,10 +52,13 @@ export class HelloRailsStack extends cdk.Stack {
       maxHealthyPercent: 200,
       taskImageOptions: {
         image: ecs.ContainerImage.fromAsset(path.join(__dirname, '..', '..', 'rails-app')),
-        containerPort: 80, // Thruster listens on 80 in the Rails 8 production image
+        // The image runs as a non-root user, which can't bind to privileged
+        // ports (<1024). Tell Thruster to listen on 8080 instead of its default 80.
+        containerPort: 8080,
         environment: {
           RAILS_ENV: 'production',
           DEPLOY_ENV: envConfig.name,
+          HTTP_PORT: '8080',
         },
         secrets: {
           SECRET_KEY_BASE: ecs.Secret.fromSecretsManager(secretKeyBase),
